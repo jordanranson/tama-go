@@ -2,12 +2,10 @@
  * Constants
  */
 
-import { CPU_FREQUENCY, MEM_BTN_ADDR } from './TamaGo copy'
-
 // Specifications
 export const CLOCK_SPEED = 96000
-export const MEMORY_LEN = 3200
-export const STORAGE_LEN = 65536
+export const MEMORY_SIZE = 3200
+export const STORAGE_SIZE = 65536
 export const DISPLAY_WIDTH = 32
 export const DISPLAY_HEIGHT = 16
 
@@ -51,9 +49,12 @@ export enum InstructionCode {
 
   /* Stack operations */
   CONST = 1,
-  // Pushes `value` onto the Stack
+  // Sets the last value on the Stack to `value`
   // `CONST <value: Integer>`
   PUSH,
+  // Pushes `value` onto the Stack
+  // `PUSH <value: Integer>`
+  PUSHR,
   // Pushes the value of `register` onto the Stack
   // `PUSH <register: Symbol>`
   POP,
@@ -85,6 +86,12 @@ export enum InstructionCode {
   MOD,
   // Pushes to the Stack the modulo the last two values on the Stack
   // `MOD`
+  RAND,
+  // TODO
+  SIN,
+  // TODO
+  COS,
+  // TODO
 
   /* Bitwise operations */
   AND,
@@ -280,7 +287,8 @@ export type Program = {
   icons: string[],
   cutout?: ImageData,
   storage: number[],
-  programTokens: Token[]
+  labels: { [key: number]: Address },
+  tokens: Token[]
 }
 
 export type Token = {
@@ -310,8 +318,8 @@ export function wordToNumber (byte0: number, byte1: number) {
 
 export function numberToWord (number: number) {
   return [
-    (number >> 0) & 0xff,
-    (number >> 8) & 0xff
+    (number >> 8) & 0xff,
+    (number >> 0) & 0xff
   ] as Address
 }
 
@@ -319,54 +327,77 @@ export function arrayOfLength (length: number) {
   return Array.apply(null, Array(length)).map(() => 0)
 }
 
-export function sourceToTokens (source: string) {
-  const lines = source.split('\n')
+export function compileFromSource (source: string) {
+  const lines = source
+    .trim()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !line.startsWith('#') && line !== '')
+
+  const definitions: { [key: string]: number } = {}
+
+  lines.forEach((line, index) => {
+    let [instruction, parameter]: (string | number)[] = line.split(' ')
+    instruction = instruction.toUpperCase()
+
+    if (isNaN(Number(parameter)) || parameter === undefined) parameter = 0
+    else parameter = Number(parameter)
+
+    if (instruction.startsWith('$')) {
+      instruction = instruction.toUpperCase()
+      definitions[instruction] = parameter
+    }
+  })
 
   const tokens: Token[] = []
 
   const labelMap: { [key: string]: number } = {}
   const labels: { [key: number]: Address } = {}
 
-  lines.forEach((line, index) => {
-    let [ instructionCode, parameter ]: (string | number)[] = line.split(' ')
+  lines
+    .filter((line) => !line.trim().startsWith('#'))
+    .forEach((line, index) => {
+      let [instruction, parameter]: (string | number)[] = line.trim().split(' ')
+      instruction = instruction.toUpperCase()
 
-    if (instructionCode.startsWith(':')) {
-      instructionCode = instructionCode.replace(':', '')
+      if (parameter === undefined)
+        parameter = 0
+      else if (typeof parameter === 'string' && parameter.startsWith('$'))
+        parameter = definitions[parameter.toUpperCase()] || 0
 
-      labelMap[instructionCode] = Object.keys(labels).length % 256
-      labels[Object.keys(labels).length % 256] = numberToWord(index)
+      if (instruction.startsWith(':')) {
+        instruction = instruction.replace(':', '')
 
-      tokens.push({ instruction: InstructionCode.NOP, parameter: Number(parameter) || 0 })
-    } else {
-      instructionCode = (Number(instructionCode) % 256) || InstructionCode.NOP
+        labelMap[instruction] = Object.keys(labels).length % 256
+        labels[Object.keys(labels).length % 256] = numberToWord(index)
 
-      switch (instructionCode) {
-        case InstructionCode.JUMP:
-        case InstructionCode.JEQ:
-        case InstructionCode.JNEQ:
-        case InstructionCode.JGT:
-        case InstructionCode.JGTE:
-        case InstructionCode.JLT:
-        case InstructionCode.JLTE:
-          tokens.push({ instruction: instructionCode, parameter: labelMap[parameter] || 0 })
-          return
-      }
-
-      if (Number(parameter) === NaN) {
-        parameter = RegisterMap[parameter] % 256
+        tokens.push({ instruction: InstructionCode.NOP, parameter: Number(parameter) || 0 })
       } else {
-        parameter = Number(parameter) % 256
-      }
+        const instructionCode: InstructionCode = InstructionCode[instruction as keyof typeof InstructionCode] || InstructionCode.NOP
 
-      tokens.push({ instruction: instructionCode, parameter })
-    }
-  })
+        switch (instructionCode) {
+          case InstructionCode.JUMP:
+          case InstructionCode.JEQ:
+          case InstructionCode.JNEQ:
+          case InstructionCode.JGT:
+          case InstructionCode.JGTE:
+          case InstructionCode.JLT:
+          case InstructionCode.JLTE:
+            tokens.push({ instruction: instructionCode, parameter: labelMap[parameter] || 0 })
+            return
+        }
+
+        if (isNaN(Number(parameter))) {
+          parameter = (RegisterMap[parameter] || 0) % 256
+        } else {
+          parameter = Number(parameter) % 256
+        }
+
+        tokens.push({ instruction: instructionCode, parameter })
+      }
+    })
 
   return { tokens, labels }
-}
-
-export function tokensToString (tokens: Token[]) {
-  return ''
 }
 
 
@@ -375,6 +406,11 @@ export function tokensToString (tokens: Token[]) {
  */
 
 export default class TamaGo {
+  // Canvas
+  canvas: HTMLCanvasElement | null = null
+  context: CanvasRenderingContext2D | null = null
+  shades: string[] = ['#BBC1CB', '#606E7C', '#2F3944']
+    
   // Currently running program
   program?: Program
 
@@ -386,9 +422,6 @@ export default class TamaGo {
 
   // 65 536 bytes of flash
   storage: number[] = arrayOfLength(65536)
-
-  // Labels
-  labels: { [key: number]: Address } = {}
 
   // Registers
   registers: { [key: string]: number } = {
@@ -414,6 +447,7 @@ export default class TamaGo {
   private _acc: number = 0
   private _lastNow: number = 0
   private _created: number = performance.now()
+  private _lastAnimFrame: number = 0
 
   constructor () {
     this._loopHandler = this.loop.bind(this)
@@ -422,10 +456,28 @@ export default class TamaGo {
     this.reset()
   }
 
-  loadProgram(program: Program) {
+  useCanvas (canvas: HTMLCanvasElement) {
+    this.canvas = canvas
+    this.canvas.width = DISPLAY_WIDTH
+    this.canvas.height = DISPLAY_HEIGHT
+    this.context = this.canvas.getContext('2d')
   }
 
-  setCutout(data: ImageData) {
+  loadProgram (program: Program) {
+    this.pause()
+
+    this.reset()
+    this.storage.fill(0)
+
+    this.program = program
+
+    this.writeToStorage(0, this.program.storage)
+
+    this.program.tokens.forEach((token, i) => {
+      this.writeToStorage(0 + i * 2, [token.instruction, token.parameter || 0])
+    })
+
+    this.run()
   }
 
   reset () {
@@ -439,32 +491,56 @@ export default class TamaGo {
   }
 
   run () {
+    if (this.running) return
+
     this.running = true
     this.loop()
   }
 
   pause () {
+    cancelAnimationFrame(this._lastAnimFrame)
     this.running = false
   }
 
   loop () {
     if (!this.running) return
 
-    requestAnimationFrame(this._loopHandler)
+    this._lastAnimFrame = requestAnimationFrame(this._loopHandler)
 
     const now = performance.now() - this._created
     const delta = now - this._lastNow
     this._acc += delta
     this._lastNow = now
 
-    const tickLen = 1000 / 60
+    const tickLen = 1000 / 30
 
     while (this._acc > tickLen) {
       this._acc -= tickLen
 
-      const numCycles = Math.round(CPU_FREQUENCY / tickLen)
+      const numCycles = Math.round(CLOCK_SPEED / tickLen)
       for (let i = 0; i < numCycles; i++) {
-        if (this.runCycle() === 0) return
+        if (this.runCycle() === 0) break
+      }
+    }
+
+    if (this.canvas && this.context) this.draw()
+  }
+
+  draw () {
+    this.context!.clearRect(0, 0, DISPLAY_WIDTH, DISPLAY_WIDTH)
+
+    const bytes = this.readFromMemory(MEM_VIDEO_ADDR, MEM_VIDEO_LEN)
+    for (let i = 0; i < bytes.length; i++) {
+      const x = i % DISPLAY_WIDTH
+      const y = Math.floor(i / DISPLAY_WIDTH)
+
+      const shade = bytes[i]
+
+      if (shade === 0) {
+        this.context!.clearRect(x, y, 1, 1)
+      } else {
+        this.context!.fillStyle = this.shades[shade - 1]
+        this.context!.fillRect(x, y, 1, 1)
       }
     }
   }
@@ -491,6 +567,7 @@ export default class TamaGo {
 
     const parameter = this.storage[instructionIndex * 2 + 1]
     this.executeInstruction(instructionCode, parameter)
+
     return instructionCode
   }
 
@@ -505,28 +582,30 @@ export default class TamaGo {
 
   pushToStack (value: number) {
     value = valueIsHigh(this.registers[Register.WRAP_VALUES])
-      ? value % 255
+      ? (value % 255)
       : clampByte(value)
 
-    this.memory[MEM_STACK_ADDR + this.registers[Register.STACK_INDEX]] = value
     this.incrementStackPointer()
+    this.memory[MEM_STACK_ADDR + this.registers[Register.STACK_INDEX]] = value
   }
 
   getFromStack (index?: number) {
     if (index === undefined) index = this.registers[Register.STACK_INDEX]
     else if (index < 0) index = this.registers[Register.STACK_INDEX] + index
 
+    if (index < 0) index = 256 + index
+
     return this.memory[MEM_STACK_ADDR + index]
   }
 
   setRegister (index: number | Register, value: number) {
     const key = typeof index === 'number'
-      ? Object.keys(Register)[index]
-      : Register
+      ? Register[Object.keys(Register)[index] as keyof typeof Register]
+      : index
     if (key === undefined) return
 
     value = valueIsHigh(this.registers[Register.WRAP_VALUES])
-      ? value % 255
+      ? (value % 255)
       : clampByte(value)
 
     this.registers[key as string] = value
@@ -534,8 +613,8 @@ export default class TamaGo {
 
   getRegister (index: number | Register) {
     const key = typeof index === 'number'
-      ? Object.keys(Register)[index]
-      : Register
+      ? Register[Object.keys(Register)[index] as keyof typeof Register]
+      : index
     if (key === undefined) return 0
 
     return this.registers[key as string]
@@ -564,7 +643,7 @@ export default class TamaGo {
   }
 
   readFromMemory (index: number, numBytes: number) {
-    return this.memory.slice(index, numBytes)
+    return this.memory.slice(index, index + numBytes)
   }
 
   writeToMemory (index: number, bytes: number[]) {
@@ -581,6 +660,17 @@ export default class TamaGo {
     )
   }
 
+  readFromStorage (index: number, numBytes: number) {
+    return this.storage.slice(index, index + numBytes)
+  }
+
+  writeToStorage (index: number, bytes: number[]) {
+    for (let i = 0; i < bytes.length; i++) {
+      if (this.storage[index + i] === undefined) return
+      this.storage[index + i] = bytes[i]
+    }
+  }
+
   jumpToAddress (address: Address) {
     this.setRegister(Register.INSTRUCTION_POINTER_HIGH, address[0])
     this.setRegister(Register.INSTRUCTION_POINTER_LOW, address[1])
@@ -590,7 +680,7 @@ export default class TamaGo {
     this.setRegister(Register.RETURN_POINTER_HIGH, this.getRegister(Register.INSTRUCTION_POINTER_HIGH))
     this.setRegister(Register.RETURN_POINTER_LOW, this.getRegister(Register.INSTRUCTION_POINTER_LOW))
 
-    const address = this.labels[label]
+    const address = this.program!.labels[label]
     this.jumpToAddress(address)
   }
 
@@ -600,10 +690,15 @@ export default class TamaGo {
 
     switch (instructionCode) {
       case InstructionCode.CONST: {
-        this.pushToStack(parameter);
+        this.decrementStackPointer()
+        this.pushToStack(parameter)
         break
       }
       case InstructionCode.PUSH: {
+        this.pushToStack(parameter)
+        break
+      }
+      case InstructionCode.PUSHR: {
         this.pushToStack(this.getRegister(parameter))
         break
       }
@@ -758,12 +853,12 @@ export default class TamaGo {
         break
       }
       case InstructionCode.BTN: {
-        if (this.memory[MEM_BTN_ADDR + a] === 1) this.setDataBuffer(HIGH)
+        if (this.memory[MEM_BUTTON_ADDR + a] === 1) this.setDataBuffer(HIGH)
         else this.setDataBuffer(LOW)
         break
       }
       case InstructionCode.BTND: {
-        if (this.memory[MEM_BTN_ADDR + a] === 1 || this.memory[MEM_BTN_ADDR + a] === 2) this.setDataBuffer(HIGH)
+        if (this.memory[MEM_BUTTON_ADDR + a] === 1 || this.memory[MEM_BUTTON_ADDR + a] === 2) this.setDataBuffer(HIGH)
         else this.setDataBuffer(LOW)
         break
       }
@@ -796,12 +891,12 @@ export default class TamaGo {
         break
       }
       case InstructionCode.DRAW: {
-        const index = b + a * DISPLAY_WIDTH
+        const index = (b % DISPLAY_WIDTH) + (a * DISPLAY_WIDTH)
         this.writeToMemory(MEM_VIDEO_ADDR + index, [parameter % 4])
         break
       }
       case InstructionCode.SHADE: {
-        const index = b + a * DISPLAY_WIDTH
+        const index = (b % DISPLAY_WIDTH) + (a * DISPLAY_WIDTH)
         this.setDataBuffer(this.memory[MEM_VIDEO_ADDR + index])
         break
       }
@@ -830,11 +925,11 @@ export default class TamaGo {
         break
       }
       case InstructionCode.LOGR: {
-        console.log(this.getRegister(parameter))
+        console.log('REGISTER', this.getRegister(parameter))
         break
       }
       case InstructionCode.LOGS: {
-        console.log(this.getFromStack())
+        console.log('STACK', this.getFromStack())
         break
       }
       case InstructionCode.NOP: {

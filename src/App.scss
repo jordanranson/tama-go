@@ -1,0 +1,19 @@
+textarea,
+canvas {
+  margin: 1rem;
+}
+
+textarea {
+  height: 100%;
+  font-family: monospace;
+}
+
+canvas {
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  width: 320px;
+  height: 160px;
+  border: solid 1px;
+}

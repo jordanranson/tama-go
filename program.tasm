@@ -1,0 +1,11 @@
+pushr xa
+push 0
+clear
+draw 1
+
+pushr xa
+push 1
+add
+push 32
+mod
+copy xa
