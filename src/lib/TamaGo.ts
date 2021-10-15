@@ -540,15 +540,13 @@ export default class TamaGo {
     this._acc += delta
     this._lastNow = now
 
-    const tickLen = 1000 / 30
+    const tickLen = 1000 / CLOCK_SPEED
+    let ticks = 0
 
     while (this._acc > tickLen) {
       this._acc -= tickLen
-
-      const numCycles = Math.round(CLOCK_SPEED / tickLen)
-      for (let i = 0; i < numCycles; i++) {
-        if (this.runCycle() === 0) break
-      }
+      ticks++
+      if (this.runCycle() === 0) break
     }
 
     if (this.canvas && this.context) this.draw()
@@ -731,7 +729,7 @@ export default class TamaGo {
         break
       }
       case InstructionCode.POP: {
-        this.setDataBuffer(a)
+        this.setRegister(parameter, a)
         this.decrementStackPointer()
         break
       }
