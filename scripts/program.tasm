@@ -1,0 +1,35 @@
+# constants
+$shade 1
+
+# draw a pixel to the screen at xa,xb
+pushr xa
+pushr xb
+clear
+draw $shade
+
+# increment y at the end of every row
+pushr xa
+push 31
+jeq :incrementY
+jump :incrementX
+
+:incrementY
+pushr xa
+pushr xb
+push 1
+add
+push 16
+mod
+logs
+copy xb
+decr 5
+copy xa
+
+# increment pixel x every cycle
+:incrementX
+pushr xa
+push 1
+add
+push 32
+mod
+copy xa

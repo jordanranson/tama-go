@@ -87,11 +87,14 @@ export enum InstructionCode {
   // Pushes to the Stack the modulo the last two values on the Stack
   // `MOD`
   RAND,
-  // TODO
+  // Pushes a random value between 0 and 255 or `maxValue` to the stack
+  // `RAND` `RAND 255`
   SIN,
-  // TODO
+  // Pushes to the Stack the sine of the last value on the Stack
+  // `SIN`
   COS,
-  // TODO
+  // Pushes to the Stack the coside of the last value on the Stack
+  // `COS`
 
   /* Bitwise operations */
   AND,
@@ -152,9 +155,6 @@ export enum InstructionCode {
   // `READ <numberOfBytes: Integer>`
 
   /* Jump operations */
-  GOTO,
-  // Copies the the last two values on the Stack to PROGRAM_COUNTER_HIGH and PROGRAM_COUNTER_LOW
-  // `GOTO`
   JUMP,
   // Copies the next two values in memory at the index specified by the address `label` refers too, to PROGRAM_COUNTER_HIGH and PROGRAM_COUNTER_LOW
   // `JUMP <label: String>`
@@ -214,21 +214,33 @@ export enum InstructionCode {
   DRAW,
   // Uses last two values from the Stack as the X and Y positions to draw a pixel
   // `DRAW <shade: Integer>`
+  DRAWR,
+  // Uses last two values from the Stack as the X and Y positions to draw a pixel
+  // `DRAWR <register: Symbol>`
   SHADE,
   // Copies the shade of a pixel to DATA_BUFFER_A; uses last two values from the Stack as the X and Y positions
   // `SHADE`
   TILE,
   // Uses last two values from the Stack as the X and Y positions to draw a tile from storage or memory
   // `TILE <index: Integer>`
+  TILER,
+  // Uses last two values from the Stack as the X and Y positions to draw a tile from storage or memory
+  // `TILER <register: Symbol>`
   SPR,
   // Uses last two values from the Stack as the X and Y positions to draw a sprite from storage or memory; shade 0 is transparent
   // `SPR <index: Integer>`
+  SPRR,
+  // Uses last two values from the Stack as the X and Y positions to draw a sprite from storage or memory; shade 0 is transparent
+  // `SPRR <register: Symbol>`
+  PRNT,
+  // Uses last two values from the Stack as the X and Y positions to draw a character
+  // `PRINT <character: Integer>`
+  PRNTR,
+  // Uses last two values from the Stack as the X and Y positions to draw a character
+  // `PRINTR <register: Symbol>`
   ICON,
   // Uses the last value from the Stack to determine if the icon is selected; HIGH value for selected
   // `ICON <icon: Integer>`
-  PRINT,
-  // Uses last two values from the Stack as the X and Y positions
-  // `PRINT <character: Integer>`
 
   /* Audio operations */
   TONE,
@@ -245,6 +257,9 @@ export enum InstructionCode {
   LOGS,
   //  Logs the last value on the stack to the JavaScript console
   // `LOGS`
+  LBL,
+  // No operation, used as a placeholder for labels
+  // `LBL`
   NOP
   // No operation
   // `NOP`
@@ -332,13 +347,14 @@ export function compileFromSource (source: string) {
     .trim()
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => !line.startsWith('#') && line !== '')
+    .filter((line) => !line.startsWith('#') && line !== '') // remove comments
 
+  // Definitions ($var)
   const definitions: { [key: string]: number } = {}
 
   lines.forEach((line, index) => {
     let [instruction, parameter]: (string | number)[] = line.split(' ')
-    instruction = instruction.toUpperCase()
+    instruction = instruction.toString().toUpperCase()
 
     if (isNaN(Number(parameter)) || parameter === undefined) parameter = 0
     else parameter = Number(parameter)
@@ -349,13 +365,27 @@ export function compileFromSource (source: string) {
     }
   })
 
-  const tokens: Token[] = []
+  // Label parsing
 
   const labelMap: { [key: string]: number } = {}
   const labels: { [key: number]: Address } = {}
 
   lines
-    .filter((line) => !line.trim().startsWith('#'))
+    .forEach((line, index) => {
+      let [instruction]: (string | number)[] = line.trim().split(' ')
+      instruction = instruction.toUpperCase()
+
+      if (instruction.startsWith(':')) {
+        const nextIndex = Object.keys(labels).length % 256
+        labelMap[instruction] = nextIndex
+        labels[nextIndex] = numberToWord(index)
+      }
+    })
+
+  // Token parsing
+  const tokens: Token[] = []
+
+  lines
     .forEach((line, index) => {
       let [instruction, parameter]: (string | number)[] = line.trim().split(' ')
       instruction = instruction.toUpperCase()
@@ -366,25 +396,23 @@ export function compileFromSource (source: string) {
         parameter = definitions[parameter.toUpperCase()] || 0
 
       if (instruction.startsWith(':')) {
-        instruction = instruction.replace(':', '')
-
-        labelMap[instruction] = Object.keys(labels).length % 256
-        labels[Object.keys(labels).length % 256] = numberToWord(index)
-
-        tokens.push({ instruction: InstructionCode.NOP, parameter: Number(parameter) || 0 })
+        tokens.push({ instruction: InstructionCode.LBL, parameter: 0 })
       } else {
         const instructionCode: InstructionCode = InstructionCode[instruction as keyof typeof InstructionCode] || InstructionCode.NOP
 
-        switch (instructionCode) {
-          case InstructionCode.JUMP:
-          case InstructionCode.JEQ:
-          case InstructionCode.JNEQ:
-          case InstructionCode.JGT:
-          case InstructionCode.JGTE:
-          case InstructionCode.JLT:
-          case InstructionCode.JLTE:
-            tokens.push({ instruction: instructionCode, parameter: labelMap[parameter] || 0 })
-            return
+        if (typeof parameter === 'string' && parameter.startsWith(':')) {
+          switch (instructionCode) {
+            case InstructionCode.JUMP:
+            case InstructionCode.JEQ:
+            case InstructionCode.JNEQ:
+            case InstructionCode.JGT:
+            case InstructionCode.JGTE:
+            case InstructionCode.JLT:
+            case InstructionCode.JLTE:
+              parameter = (parameter as string).toUpperCase()
+              tokens.push({ instruction: instructionCode, parameter: labelMap[parameter] || 0 })
+              return
+          }
         }
 
         if (isNaN(Number(parameter))) {
@@ -708,7 +736,7 @@ export default class TamaGo {
         break
       }
       case InstructionCode.COPY: {
-        this.setDataBuffer(a)
+        this.setRegister(parameter, a)
         break
       }
       case InstructionCode.INCR: {
@@ -737,6 +765,18 @@ export default class TamaGo {
       }
       case InstructionCode.MOD: {
         this.pushToStack(b % a);
+        break
+      }
+      case InstructionCode.RAND: {
+        this.pushToStack(Math.round(Math.random() * (parameter || 255)))
+        break
+      }
+      case InstructionCode.SIN: {
+        this.pushToStack(Math.round(Math.sin(a)))
+        break
+      }
+      case InstructionCode.COS: {
+        this.pushToStack(Math.round(Math.cos(a)))
         break
       }
       case InstructionCode.AND: {
@@ -814,11 +854,6 @@ export default class TamaGo {
         this.setDataBuffer(this.storage[this.getCurrentStorageIndex()])
         break
       }
-      case InstructionCode.GOTO: {
-        this.setRegister(Register.INSTRUCTION_POINTER_HIGH, b)
-        this.setRegister(Register.INSTRUCTION_POINTER_LOW, a)
-        break
-      }
       case InstructionCode.JUMP: {
         this.jumpToLabel(parameter)
         break
@@ -829,11 +864,11 @@ export default class TamaGo {
         break
       }
       case InstructionCode.JEQ: {
-        if (b === a)  this.jumpToLabel(parameter)
+        if (b == a)  this.jumpToLabel(parameter)
         break
       }
       case InstructionCode.JNEQ: {
-        if (b !== a)  this.jumpToLabel(parameter)
+        if (b != a)  this.jumpToLabel(parameter)
         break
       }
       case InstructionCode.JGT: {
@@ -895,6 +930,11 @@ export default class TamaGo {
         this.writeToMemory(MEM_VIDEO_ADDR + index, [parameter % 4])
         break
       }
+      case InstructionCode.DRAW: {
+        const index = (b % DISPLAY_WIDTH) + (a * DISPLAY_WIDTH)
+        this.writeToMemory(MEM_VIDEO_ADDR + index, [this.getRegister(parameter) % 4])
+        break
+      }
       case InstructionCode.SHADE: {
         const index = (b % DISPLAY_WIDTH) + (a * DISPLAY_WIDTH)
         this.setDataBuffer(this.memory[MEM_VIDEO_ADDR + index])
@@ -904,15 +944,27 @@ export default class TamaGo {
         // TODO
         break
       }
+      case InstructionCode.TILER: {
+        // TODO
+        break
+      }
       case InstructionCode.SPR: {
         // TODO
         break
       }
-      case InstructionCode.ICON: {
+      case InstructionCode.SPRR: {
         // TODO
         break
       }
-      case InstructionCode.PRINT: {
+      case InstructionCode.PRNT: {
+        // TODO
+        break
+      }
+      case InstructionCode.PRNTR: {
+        // TODO
+        break
+      }
+      case InstructionCode.ICON: {
         // TODO
         break
       }
@@ -932,6 +984,7 @@ export default class TamaGo {
         console.log('STACK', this.getFromStack())
         break
       }
+      case InstructionCode.LBL:
       case InstructionCode.NOP: {
         break
       }

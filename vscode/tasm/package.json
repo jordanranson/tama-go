@@ -1,0 +1,29 @@
+{
+  "name": "tasm",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": ">=0.9.0-pre.1"
+  },
+  "publisher": "Jordan Ranson",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tasm",
+        "aliases": [
+          "TASM",
+          "tasm"
+        ],
+        "extensions": [
+          ".tasm"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tasm",
+        "scopeName": "source.tasm",
+        "path": "./syntaxes/tasm.tmLanguage.json"
+      }
+    ]
+  }
+}

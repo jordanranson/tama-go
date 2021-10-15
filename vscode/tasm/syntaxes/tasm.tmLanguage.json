@@ -1,0 +1,56 @@
+{
+  "scopeName": "source.tasm",
+  "patterns": [
+    {
+      "include": "#expression"
+    }
+  ],
+  "repository": {
+    "expression": {
+      "patterns": [
+        {
+          "include": "#integer"
+        },
+        {
+          "include": "#register"
+        },
+        {
+          "include": "#label"
+        },
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#macro"
+        },
+        {
+          "include": "#instruction"
+        }
+      ]
+    },
+    "integer": {
+      "match": "\b(1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])\b",
+      "name": "constant.numeric.integer"
+    },
+    "register": {
+      "match": "(?i)xa|xb|pch|pcl|si|mph|mpl|sph|spl|rph|rpl|sc|tp|dm|wv",
+      "name": "variable.register"
+    },
+    "label": {
+      "match": ":[a-zA-Z\\d_-]+",
+      "name": "keyword.control.jump-label"
+    },
+    "comment": {
+      "match": "^\\s*#.*",
+      "name": "comment.line.number-sign"
+    },
+    "macro": {
+      "match": "\\$[a-zA-Z\\d_-]+",
+      "name": "variable.macro"
+    },
+    "instruction": {
+      "match": "(?i)CONST|PUSHR|PUSH|POP|COPY|INCR|DECR|ADD|SUB|MUL|DIV|MOD|RAND|SIN|COS|AND|OR|XOR|NOT|LSHFT|RSHFT|SET|GET|MOV|MADDR|PEEK|POKE|SAVE|LOAD|SADDR|READ|JUMP|RTN|JEQ|JNEQ|JGT|JGTE|JLT|JLTE|BTN|BTND|TICK|PIN|POUT|SEND|RECV|CLEAR|DRAWR|DRAW|SHADE|TILER|TILE|SPRR|SPR|PRNTR|PRNT|ICON|TONE|SLEEP|LOGR|LOGS|LBL|NOP",
+      "name": "support.function.instruction"
+    }
+  }
+}
